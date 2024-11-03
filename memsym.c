@@ -1,17 +1,81 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/types.h>
+#include <stdint.h>
 
 #define TRUE 1
 #define FALSE 0
+#define MAX_TLB_ENTRIES 8
+#define MAX_PROCESSES 4
 
-// Output file
+typedef struct {
+    int valid;
+    int vpn;
+    int pfn;
+    int pid;
+    uint32_t timestamp;
+} TLBEntry;
+
+typedef struct {
+    int valid;
+    int pfn;
+} PageTableEntry;
+
+// Global variables for the simulation
 FILE* output_file;
-
-// TLB replacement strategy (FIFO or LRU)
 char* strategy;
+uint32_t* memory;
+TLBEntry tlb[MAX_TLB_ENTRIES];
+PageTableEntry page_tables[MAX_PROCESSES][1024]; // assuming a maximum of 1024 pages
+uint32_t registers[2]; // registers r1 and r2
+int current_pid = 0;
+uint32_t instruction_counter = 0;
+int offset_bits;
+int pfn_bits;
+int vpn_bits;
+int is_defined = FALSE; // Flag to check if 'define' has been called
 
+void initialize_memory(int offset, int pfn, int vpn) {
+    offset_bits = offset;
+    pfn_bits = pfn;
+    vpn_bits = vpn;
+
+    int memory_size = (1 << (offset_bits + pfn_bits));
+    memory = (uint32_t*)calloc(memory_size, sizeof(uint32_t));
+    if (!memory) {
+        fprintf(stderr, "Memory allocation failed.\n");
+        exit(1);
+    }
+
+    // Initialize TLB entries
+    for (int i = 0; i < MAX_TLB_ENTRIES; i++) {
+        tlb[i].valid = FALSE;
+    }
+
+    // Initialize page tables for each process
+    for (int pid = 0; pid < MAX_PROCESSES; pid++) {
+        for (int i = 0; i < (1 << vpn_bits); i++) {
+            page_tables[pid][i].valid = FALSE;
+        }
+    }
+
+    // Include 'Current PID' prefix in the output of 'define'
+    fprintf(output_file, "Current PID: %d. Memory instantiation complete. OFF bits: %d. PFN bits: %d. VPN bits: %d\n", current_pid, offset, pfn, vpn);
+}
+
+void context_switch(int pid) {
+    if (pid < 0 || pid >= MAX_PROCESSES) {
+        // Include 'Current PID' prefix in error messages
+        fprintf(output_file, "Current PID: %d. Invalid context switch to process %d\n", current_pid, pid);
+        exit(1);
+    }
+
+    current_pid = pid; // Update current_pid before printing
+    // Include 'Current PID' prefix and correct formatting
+    fprintf(output_file, "Current PID: %d. Switched execution context to process: %d\n", current_pid, pid);
+}
+
+// Function to tokenize input
 char** tokenize_input(char* input) {
     char** tokens = NULL;
     char* token = strtok(input, " ");
@@ -20,7 +84,15 @@ char** tokenize_input(char* input) {
     while (token != NULL) {
         num_tokens++;
         tokens = realloc(tokens, num_tokens * sizeof(char*));
+        if (!tokens) {
+            fprintf(stderr, "Memory allocation failed during tokenization.\n");
+            exit(1);
+        }
         tokens[num_tokens - 1] = malloc(strlen(token) + 1);
+        if (!tokens[num_tokens - 1]) {
+            fprintf(stderr, "Memory allocation failed during tokenization.\n");
+            exit(1);
+        }
         strcpy(tokens[num_tokens - 1], token);
         token = strtok(NULL, " ");
     }
@@ -38,7 +110,6 @@ int main(int argc, char* argv[]) {
     char* output_trace;
     char buffer[1024];
 
-    // Parse command line arguments
     if (argc != 4) {
         printf("%s", usage);
         return 1;
@@ -47,33 +118,62 @@ int main(int argc, char* argv[]) {
     input_trace = argv[2];
     output_trace = argv[3];
 
-    // Open input and output files
     FILE* input_file = fopen(input_trace, "r");
-    output_file = fopen(output_trace, "w");  
+    output_file = fopen(output_trace, "w");
 
-    while ( !feof(input_file) ) {
-        // Read input file line by line
-        char *rez = fgets(buffer, sizeof(buffer), input_file);
-        if ( !rez ) {
-            fprintf(stderr, "Reached end of trace. Exiting...\n");
-            return -1;
-        } else {
-            // Remove endline character
-            buffer[strlen(buffer) - 1] = '\0';
+    if (!input_file || !output_file) {
+        fprintf(stderr, "Error: unable to open input/output files.\n");
+        return 1;
+    }
+
+    while (!feof(input_file)) {
+        char* rez = fgets(buffer, sizeof(buffer), input_file);
+        if (!rez) {
+            break;
         }
+
+        buffer[strcspn(buffer, "\n")] = '\0'; // Remove newline character
+
+        if (buffer[0] == '%') continue; // Skip comments
+
+        // Skip empty lines
+        if (buffer[0] == '\0') continue;
+
         char** tokens = tokenize_input(buffer);
 
-        // TODO: Implement your memory simulator
+        if (strcmp(tokens[0], "define") == 0) {
+            if (is_defined) {
+                // Include 'Current PID' prefix in the error message
+                fprintf(output_file, "Current PID: %d. Error: multiple calls to define in the same trace\n", current_pid);
+                break;
+            }
+            int offset = atoi(tokens[1]);
+            int pfn = atoi(tokens[2]);
+            int vpn = atoi(tokens[3]);
+            initialize_memory(offset, pfn, vpn);
+            is_defined = TRUE;
+        } else if (!is_defined) {
+            // Do not include 'Current PID' prefix in this error message
+            fprintf(output_file, "Error: attempt to execute instruction before define\n");
+            break;
+        } else if (strcmp(tokens[0], "ctxswitch") == 0) {
+            int pid = atoi(tokens[1]);
+            context_switch(pid);
+        } else {
+            // TODO: Implement other instructions such as map, unmap, pinspect, etc.
+        }
 
         // Deallocate tokens
         for (int i = 0; tokens[i] != NULL; i++)
             free(tokens[i]);
         free(tokens);
+
+        instruction_counter++;
     }
 
-    // Close input and output files
     fclose(input_file);
     fclose(output_file);
 
+    free(memory);
     return 0;
 }
