@@ -100,7 +100,7 @@ void handle_load(char **tokens) {
     } else if (strcmp(dst, "r2") == 0) {
         reg_index = 1;
     } else {
-        fprintf(output_file, "Error: invalid register operand %s\n", dst);
+        fprintf(output_file, "Current PID: %d. Error: invalid register operand %s\n", current_pid, dst);
         exit(1);
     }
 
