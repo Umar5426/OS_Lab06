@@ -58,6 +58,7 @@ void initialize_memory(int offset, int pfn, int vpn) {
     for (int pid = 0; pid < MAX_PROCESSES; pid++) {
         for (int i = 0; i < 1024; i++) {
             page_tables[pid][i].valid = FALSE;
+            page_tables[pid][i].pfn = 0; // Initialize pfn to 0
         }
         // Initialize process registers
         process_registers[pid][0] = 0; // r1
@@ -157,6 +158,7 @@ void handle_unmap(char **tokens) {
 
     // Invalidate the page table entry for the current process
     page_tables[current_pid][vpn].valid = FALSE;
+    page_tables[current_pid][vpn].pfn = 0; // Reset PFN to 0
 
     // Invalidate any TLB entry for this VPN and current PID
     for (int i = 0; i < MAX_TLB_ENTRIES; i++) {
