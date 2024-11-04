@@ -193,10 +193,8 @@ uint32_t translate_address(uint32_t virtual_addr) {
         uint32_t pfn = tlb[tlb_index].pfn;
         fprintf(output_file, "Current PID: %d. Translating. Lookup for VPN %u hit in TLB entry %d. PFN is %u\n", current_pid, vpn, tlb_index, pfn);
 
-        // For LRU strategy, update timestamp
-        if (strcmp(strategy, "LRU") == 0 || strcmp(strategy, "lru") == 0) {
-            tlb[tlb_index].timestamp = instruction_counter;
-        }
+        // Update timestamp
+        tlb[tlb_index].timestamp = instruction_counter;
 
         return (pfn << offset_bits) | offset;
     } else {
@@ -212,21 +210,11 @@ uint32_t translate_address(uint32_t virtual_addr) {
             // Bring the mapping into the TLB
             int replace_index = -1;
 
-            // Check if TLB entry for this VPN and PID already exists
+            // Find an invalid TLB entry starting from index 0
             for (int i = 0; i < MAX_TLB_ENTRIES; i++) {
-                if (tlb[i].valid && tlb[i].vpn == vpn && tlb[i].pid == current_pid) {
+                if (!tlb[i].valid) {
                     replace_index = i;
                     break;
-                }
-            }
-
-            // If not, find an invalid TLB entry starting from index 0
-            if (replace_index == -1) {
-                for (int i = 0; i < MAX_TLB_ENTRIES; i++) {
-                    if (!tlb[i].valid) {
-                        replace_index = i;
-                        break;
-                    }
                 }
             }
 
@@ -266,7 +254,7 @@ uint32_t translate_address(uint32_t virtual_addr) {
         } else {
             // Translation not found in page table
             fprintf(output_file, "Current PID: %d. Translating. Translation for VPN %u not found in page table\n", current_pid, vpn);
-            return INVALID_ADDRESS;
+            exit(1);
         }
     }
 }
