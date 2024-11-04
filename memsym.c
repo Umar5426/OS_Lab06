@@ -28,6 +28,7 @@ uint32_t* memory;
 TLBEntry tlb[MAX_TLB_ENTRIES];
 PageTableEntry page_tables[MAX_PROCESSES][1024]; // assuming a maximum of 1024 pages
 uint32_t registers[2]; // registers r1 and r2
+uint32_t process_registers[MAX_PROCESSES][2]; // For storing r1 and r2 of each process
 int current_pid = 0;
 uint32_t instruction_counter = 0;
 int offset_bits;
@@ -57,6 +58,9 @@ void initialize_memory(int offset, int pfn, int vpn) {
         for (int i = 0; i < (1 << vpn_bits); i++) {
             page_tables[pid][i].valid = FALSE;
         }
+        // Initialize process registers
+        process_registers[pid][0] = 0; // r1
+        process_registers[pid][1] = 0; // r2
     }
 
     // Include 'Current PID' prefix in the output of 'define'
@@ -70,9 +74,56 @@ void context_switch(int pid) {
         exit(1);
     }
 
+    // Save current process's registers
+    process_registers[current_pid][0] = registers[0];
+    process_registers[current_pid][1] = registers[1];
+
     current_pid = pid; // Update current_pid before printing
+
+    // Restore new process's registers
+    registers[0] = process_registers[current_pid][0];
+    registers[1] = process_registers[current_pid][1];
+
     // Include 'Current PID' prefix and correct formatting
     fprintf(output_file, "Current PID: %d. Switched execution context to process: %d\n", current_pid, pid);
+}
+
+// Function to handle 'load' instruction
+void handle_load(char **tokens) {
+    char *dst = tokens[1];
+    char *src = tokens[2];
+
+    // Validate destination register
+    int reg_index;
+    if (strcmp(dst, "r1") == 0) {
+        reg_index = 0;
+    } else if (strcmp(dst, "r2") == 0) {
+        reg_index = 1;
+    } else {
+        fprintf(output_file, "Error: invalid register operand %s\n", dst);
+        exit(1);
+    }
+
+    // Check if src is immediate or memory location
+    if (src[0] == '#') {
+        // Immediate value
+        uint32_t value = (uint32_t)atoi(src + 1);
+        registers[reg_index] = value;
+        fprintf(output_file, "Current PID: %d. Loaded immediate %s into register %s\n", current_pid, src + 1, dst);
+    } else {
+        // Memory location (we'll handle address translation in Part 3)
+        // For Part 2, we can assume this case won't occur
+    }
+}
+
+// Function to handle 'add' instruction
+void handle_add() {
+    uint32_t value1 = registers[0]; // r1
+    uint32_t value2 = registers[1]; // r2
+    uint32_t result = value1 + value2;
+    registers[0] = result; // Store result in r1
+
+    fprintf(output_file, "Current PID: %d. Added register r1 (%u) to register r2 (%u). Result: %u\n", current_pid, value1, value2, result);
 }
 
 // Function to tokenize input
@@ -159,8 +210,13 @@ int main(int argc, char* argv[]) {
         } else if (strcmp(tokens[0], "ctxswitch") == 0) {
             int pid = atoi(tokens[1]);
             context_switch(pid);
+        } else if (strcmp(tokens[0], "load") == 0) {
+            handle_load(tokens);
+        } else if (strcmp(tokens[0], "add") == 0) {
+            handle_add();
         } else {
-            // TODO: Implement other instructions such as map, unmap, pinspect, etc.
+            fprintf(output_file, "Error: unknown instruction %s\n", tokens[0]);
+            exit(1);
         }
 
         // Deallocate tokens
