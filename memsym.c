@@ -212,21 +212,11 @@ uint32_t translate_address(uint32_t virtual_addr) {
             // Bring the mapping into the TLB
             int replace_index = -1;
 
-            // Check if TLB entry for this VPN and PID already exists
+            // Find an invalid TLB entry starting from index 0
             for (int i = 0; i < MAX_TLB_ENTRIES; i++) {
-                if (tlb[i].valid && tlb[i].vpn == vpn && tlb[i].pid == current_pid) {
+                if (!tlb[i].valid) {
                     replace_index = i;
                     break;
-                }
-            }
-
-            // If not, find an invalid TLB entry starting from index 0
-            if (replace_index == -1) {
-                for (int i = 0; i < MAX_TLB_ENTRIES; i++) {
-                    if (!tlb[i].valid) {
-                        replace_index = i;
-                        break;
-                    }
                 }
             }
 
@@ -235,6 +225,7 @@ uint32_t translate_address(uint32_t virtual_addr) {
                 uint32_t target_timestamp = UINT32_MAX;
                 if (strcmp(strategy, "FIFO") == 0 || strcmp(strategy, "fifo") == 0) {
                     // FIFO strategy: replace the oldest entry
+                    target_timestamp = UINT32_MAX;
                     for (int i = 0; i < MAX_TLB_ENTRIES; i++) {
                         if (tlb[i].timestamp < target_timestamp) {
                             target_timestamp = tlb[i].timestamp;
@@ -243,6 +234,7 @@ uint32_t translate_address(uint32_t virtual_addr) {
                     }
                 } else if (strcmp(strategy, "LRU") == 0 || strcmp(strategy, "lru") == 0) {
                     // LRU strategy: replace the least recently used entry
+                    target_timestamp = UINT32_MAX;
                     for (int i = 0; i < MAX_TLB_ENTRIES; i++) {
                         if (tlb[i].timestamp < target_timestamp) {
                             target_timestamp = tlb[i].timestamp;
@@ -266,7 +258,7 @@ uint32_t translate_address(uint32_t virtual_addr) {
         } else {
             // Translation not found in page table
             fprintf(output_file, "Current PID: %d. Translating. Translation for VPN %u not found in page table\n", current_pid, vpn);
-            return INVALID_ADDRESS;
+            exit(1);
         }
     }
 }
@@ -359,7 +351,7 @@ void handle_add() {
     registers[0] = result; // Store result in r1
 
     // Corrected output string to match expected output
-    fprintf(output_file, "Current PID: %d. Added register r1 (%u) to register r2 (%u). Result: %u\n", current_pid, value1, value2, result);
+    fprintf(output_file, "Current PID: %d. Added contents of registers r1 (%u) and r2 (%u). Result: %u\n", current_pid, value1, value2, result);
 }
 
 // Function to handle 'pinspect' instruction
