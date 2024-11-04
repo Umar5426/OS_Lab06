@@ -204,8 +204,8 @@ int main(int argc, char* argv[]) {
             initialize_memory(offset, pfn, vpn);
             is_defined = TRUE;
         } else if (!is_defined) {
-            // Do not include 'Current PID' prefix in this error message
-            fprintf(output_file, "Error: attempt to execute instruction before define\n");
+            // Include 'Current PID' prefix in this error message
+            fprintf(output_file, "Current PID: %d. Error: attempt to execute instruction before define\n", current_pid);
             break;
         } else if (strcmp(tokens[0], "ctxswitch") == 0) {
             int pid = atoi(tokens[1]);
