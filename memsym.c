@@ -407,7 +407,8 @@ void handle_linspect(char **tokens) {
 
     uint32_t value = memory[physical_addr];
 
-    fprintf(output_file, "Current PID: %d. Inspected physical location %u. Content: %u\n", current_pid, physical_addr, value);
+    // Updated output message to match expected output
+    fprintf(output_file, "Current PID: %d. Inspected physical location %u. Value: %u\n", current_pid, physical_addr, value);
 }
 
 // Function to handle 'rinspect' instruction
