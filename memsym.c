@@ -123,7 +123,8 @@ void handle_add() {
     uint32_t result = value1 + value2;
     registers[0] = result; // Store result in r1
 
-    fprintf(output_file, "Current PID: %d. Added register r1 (%u) to register r2 (%u). Result: %u\n", current_pid, value1, value2, result);
+    // Corrected output string to match expected output
+    fprintf(output_file, "Current PID: %d. Added contents of registers r1 (%u) and r2 (%u). Result: %u\n", current_pid, value1, value2, result);
 }
 
 // Function to tokenize input
