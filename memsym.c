@@ -13,7 +13,7 @@ typedef struct {
     int valid;
     uint32_t vpn;
     uint32_t pfn;
-    int pid;
+    uint32_t pid;       // Include PID in TLB entry
     uint32_t timestamp;
 } TLBEntry;
 
@@ -26,7 +26,7 @@ typedef struct {
 FILE* output_file;
 char* strategy;
 uint32_t* memory;
-TLBEntry tlb[MAX_TLB_ENTRIES];
+TLBEntry tlb[MAX_TLB_ENTRIES]; // Only one TLB
 PageTableEntry page_tables[MAX_PROCESSES][1024]; // assuming a maximum of 1024 pages
 uint32_t registers[2]; // registers r1 and r2
 uint32_t process_registers[MAX_PROCESSES][2]; // For storing r1 and r2 of each process
@@ -68,44 +68,6 @@ void initialize_memory(int offset, int pfn, int vpn) {
     fprintf(output_file, "Current PID: %d. Memory instantiation complete. OFF bits: %d. PFN bits: %d. VPN bits: %d\n", current_pid, offset, pfn, vpn);
 }
 
-// Function to handle 'map' command
-void handle_map(char **tokens) {
-    uint32_t vpn = (uint32_t)atoi(tokens[1]);
-    uint32_t pfn = (uint32_t)atoi(tokens[2]);
-
-    // Update the page table for the current process
-    page_tables[current_pid][vpn].valid = TRUE;
-    page_tables[current_pid][vpn].pfn = pfn;
-
-    // Invalidate any existing TLB entry for this VPN and PID
-    for (int i = 0; i < MAX_TLB_ENTRIES; i++) {
-        if (tlb[i].valid && tlb[i].vpn == vpn && tlb[i].pid == current_pid) {
-            tlb[i].valid = FALSE;
-            break;
-        }
-    }
-
-    fprintf(output_file, "Current PID: %d. Mapped virtual page number %u to physical frame number %u\n", current_pid, vpn, pfn);
-}
-
-// Function to handle 'unmap' command
-void handle_unmap(char **tokens) {
-    uint32_t vpn = (uint32_t)atoi(tokens[1]);
-
-    // Invalidate the page table entry for the current process
-    page_tables[current_pid][vpn].valid = FALSE;
-
-    // Invalidate any TLB entry for this VPN and PID
-    for (int i = 0; i < MAX_TLB_ENTRIES; i++) {
-        if (tlb[i].valid && tlb[i].vpn == vpn && tlb[i].pid == current_pid) {
-            tlb[i].valid = FALSE;
-            break;
-        }
-    }
-
-    fprintf(output_file, "Current PID: %d. Unmapped virtual page number %u\n", current_pid, vpn);
-}
-
 void context_switch(int pid) {
     if (pid < 0 || pid >= MAX_PROCESSES) {
         // Include 'Current PID' prefix in error messages
@@ -125,6 +87,73 @@ void context_switch(int pid) {
 
     // Include 'Current PID' prefix and correct formatting
     fprintf(output_file, "Current PID: %d. Switched execution context to process: %d\n", current_pid, pid);
+}
+
+// Function to handle 'map' command
+void handle_map(char **tokens) {
+    uint32_t vpn = (uint32_t)atoi(tokens[1]);
+    uint32_t pfn = (uint32_t)atoi(tokens[2]);
+
+    // Update the page table for the current process
+    page_tables[current_pid][vpn].valid = TRUE;
+    page_tables[current_pid][vpn].pfn = pfn;
+
+    // Invalidate any existing TLB entries for this VPN and PID
+    for (int i = 0; i < MAX_TLB_ENTRIES; i++) {
+        if (tlb[i].valid && tlb[i].vpn == vpn && tlb[i].pid == current_pid) {
+            tlb[i].valid = FALSE;
+            // Do not break; there might be multiple entries
+        }
+    }
+
+    // The new mapping must be created both in the TLB and the page table
+    // Find an invalid TLB entry starting from index 0
+    int replace_index = -1;
+    for (int i = 0; i < MAX_TLB_ENTRIES; i++) {
+        if (!tlb[i].valid) {
+            replace_index = i;
+            break;
+        }
+    }
+
+    // If no invalid entry, use replacement strategy
+    if (replace_index == -1) {
+        // For FIFO, replace the oldest entry
+        uint32_t oldest_timestamp = UINT32_MAX;
+        for (int i = 0; i < MAX_TLB_ENTRIES; i++) {
+            if (tlb[i].timestamp < oldest_timestamp) {
+                oldest_timestamp = tlb[i].timestamp;
+                replace_index = i;
+            }
+        }
+    }
+
+    // Replace the entry at replace_index
+    tlb[replace_index].valid = TRUE;
+    tlb[replace_index].vpn = vpn;
+    tlb[replace_index].pfn = pfn;
+    tlb[replace_index].pid = current_pid;
+    tlb[replace_index].timestamp = instruction_counter;
+
+    fprintf(output_file, "Current PID: %d. Mapped virtual page number %u to physical frame number %u\n", current_pid, vpn, pfn);
+}
+
+// Function to handle 'unmap' command
+void handle_unmap(char **tokens) {
+    uint32_t vpn = (uint32_t)atoi(tokens[1]);
+
+    // Invalidate the page table entry for the current process
+    page_tables[current_pid][vpn].valid = FALSE;
+
+    // Invalidate any TLB entry for this VPN and current PID
+    for (int i = 0; i < MAX_TLB_ENTRIES; i++) {
+        if (tlb[i].valid && tlb[i].vpn == vpn && tlb[i].pid == current_pid) {
+            tlb[i].valid = FALSE;
+            // Do not break; there might be multiple entries
+        }
+    }
+
+    fprintf(output_file, "Current PID: %d. Unmapped virtual page number %u\n", current_pid, vpn);
 }
 
 // Function to translate virtual address to physical address
@@ -166,16 +195,35 @@ uint32_t translate_address(uint32_t virtual_addr) {
             fprintf(output_file, "Current PID: %d. Translating. Successfully mapped VPN %u to PFN %u\n", current_pid, vpn, pfn);
 
             // Bring the mapping into the TLB
-            // Implement FIFO replacement
             int replace_index = -1;
-            uint32_t oldest_timestamp = UINT32_MAX;
+
+            // Check if TLB entry for this VPN and PID already exists
             for (int i = 0; i < MAX_TLB_ENTRIES; i++) {
-                if (!tlb[i].valid) {
+                if (tlb[i].valid && tlb[i].vpn == vpn && tlb[i].pid == current_pid) {
                     replace_index = i;
                     break;
-                } else if (tlb[i].timestamp < oldest_timestamp) {
-                    oldest_timestamp = tlb[i].timestamp;
-                    replace_index = i;
+                }
+            }
+
+            // If not, find an invalid TLB entry starting from index 0
+            if (replace_index == -1) {
+                for (int i = 0; i < MAX_TLB_ENTRIES; i++) {
+                    if (!tlb[i].valid) {
+                        replace_index = i;
+                        break;
+                    }
+                }
+            }
+
+            // If no invalid entry, use replacement strategy
+            if (replace_index == -1) {
+                // For FIFO, replace the oldest entry
+                uint32_t oldest_timestamp = UINT32_MAX;
+                for (int i = 0; i < MAX_TLB_ENTRIES; i++) {
+                    if (tlb[i].timestamp < oldest_timestamp) {
+                        oldest_timestamp = tlb[i].timestamp;
+                        replace_index = i;
+                    }
                 }
             }
 
@@ -350,6 +398,9 @@ int main(int argc, char* argv[]) {
         // Skip empty lines
         if (buffer[0] == '\0') continue;
 
+        // Increment instruction counter before processing
+        instruction_counter++;
+
         char** tokens = tokenize_input(buffer);
 
         if (strcmp(tokens[0], "define") == 0) {
@@ -389,8 +440,6 @@ int main(int argc, char* argv[]) {
         for (int i = 0; tokens[i] != NULL; i++)
             free(tokens[i]);
         free(tokens);
-
-        instruction_counter++;
     }
 
     fclose(input_file);
