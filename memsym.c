@@ -193,8 +193,10 @@ uint32_t translate_address(uint32_t virtual_addr) {
         uint32_t pfn = tlb[tlb_index].pfn;
         fprintf(output_file, "Current PID: %d. Translating. Lookup for VPN %u hit in TLB entry %d. PFN is %u\n", current_pid, vpn, tlb_index, pfn);
 
-        // Update timestamp
-        tlb[tlb_index].timestamp = instruction_counter;
+        // For LRU strategy, update timestamp
+        if (strcmp(strategy, "LRU") == 0 || strcmp(strategy, "lru") == 0) {
+            tlb[tlb_index].timestamp = instruction_counter;
+        }
 
         return (pfn << offset_bits) | offset;
     } else {
@@ -223,6 +225,7 @@ uint32_t translate_address(uint32_t virtual_addr) {
                 uint32_t target_timestamp = UINT32_MAX;
                 if (strcmp(strategy, "FIFO") == 0 || strcmp(strategy, "fifo") == 0) {
                     // FIFO strategy: replace the oldest entry
+                    target_timestamp = UINT32_MAX;
                     for (int i = 0; i < MAX_TLB_ENTRIES; i++) {
                         if (tlb[i].timestamp < target_timestamp) {
                             target_timestamp = tlb[i].timestamp;
@@ -231,6 +234,7 @@ uint32_t translate_address(uint32_t virtual_addr) {
                     }
                 } else if (strcmp(strategy, "LRU") == 0 || strcmp(strategy, "lru") == 0) {
                     // LRU strategy: replace the least recently used entry
+                    target_timestamp = UINT32_MAX;
                     for (int i = 0; i < MAX_TLB_ENTRIES; i++) {
                         if (tlb[i].timestamp < target_timestamp) {
                             target_timestamp = tlb[i].timestamp;
@@ -347,7 +351,7 @@ void handle_add() {
     registers[0] = result; // Store result in r1
 
     // Corrected output string to match expected output
-    fprintf(output_file, "Current PID: %d. Added register r1 (%u) to register r2 (%u). Result: %u\n", current_pid, value1, value2, result);
+    fprintf(output_file, "Current PID: %d. Added contents of registers r1 (%u) and r2 (%u). Result: %u\n", current_pid, value1, value2, result);
 }
 
 // Function to handle 'pinspect' instruction
