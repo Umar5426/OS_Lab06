@@ -118,13 +118,26 @@ void handle_map(char **tokens) {
 
     // If no invalid entry, use replacement strategy
     if (replace_index == -1) {
-        // For FIFO, replace the oldest entry
-        uint32_t oldest_timestamp = UINT32_MAX;
-        for (int i = 0; i < MAX_TLB_ENTRIES; i++) {
-            if (tlb[i].timestamp < oldest_timestamp) {
-                oldest_timestamp = tlb[i].timestamp;
-                replace_index = i;
+        uint32_t target_timestamp = UINT32_MAX;
+        if (strcmp(strategy, "FIFO") == 0 || strcmp(strategy, "fifo") == 0) {
+            // FIFO strategy: replace the oldest entry
+            for (int i = 0; i < MAX_TLB_ENTRIES; i++) {
+                if (tlb[i].timestamp < target_timestamp) {
+                    target_timestamp = tlb[i].timestamp;
+                    replace_index = i;
+                }
             }
+        } else if (strcmp(strategy, "LRU") == 0 || strcmp(strategy, "lru") == 0) {
+            // LRU strategy: replace the least recently used entry
+            for (int i = 0; i < MAX_TLB_ENTRIES; i++) {
+                if (tlb[i].timestamp < target_timestamp) {
+                    target_timestamp = tlb[i].timestamp;
+                    replace_index = i;
+                }
+            }
+        } else {
+            fprintf(output_file, "Error: unknown TLB replacement strategy %s\n", strategy);
+            exit(1);
         }
     }
 
@@ -178,8 +191,8 @@ uint32_t translate_address(uint32_t virtual_addr) {
         uint32_t pfn = tlb[tlb_index].pfn;
         fprintf(output_file, "Current PID: %d. Translating. Lookup for VPN %u hit in TLB entry %d. PFN is %u\n", current_pid, vpn, tlb_index, pfn);
 
-        // For LRU strategy, update timestamp (not required for FIFO)
-        if (strcmp(strategy, "LRU") == 0) {
+        // For LRU strategy, update timestamp
+        if (strcmp(strategy, "LRU") == 0 || strcmp(strategy, "lru") == 0) {
             tlb[tlb_index].timestamp = instruction_counter;
         }
 
@@ -217,13 +230,26 @@ uint32_t translate_address(uint32_t virtual_addr) {
 
             // If no invalid entry, use replacement strategy
             if (replace_index == -1) {
-                // For FIFO, replace the oldest entry
-                uint32_t oldest_timestamp = UINT32_MAX;
-                for (int i = 0; i < MAX_TLB_ENTRIES; i++) {
-                    if (tlb[i].timestamp < oldest_timestamp) {
-                        oldest_timestamp = tlb[i].timestamp;
-                        replace_index = i;
+                uint32_t target_timestamp = UINT32_MAX;
+                if (strcmp(strategy, "FIFO") == 0 || strcmp(strategy, "fifo") == 0) {
+                    // FIFO strategy: replace the oldest entry
+                    for (int i = 0; i < MAX_TLB_ENTRIES; i++) {
+                        if (tlb[i].timestamp < target_timestamp) {
+                            target_timestamp = tlb[i].timestamp;
+                            replace_index = i;
+                        }
                     }
+                } else if (strcmp(strategy, "LRU") == 0 || strcmp(strategy, "lru") == 0) {
+                    // LRU strategy: replace the least recently used entry
+                    for (int i = 0; i < MAX_TLB_ENTRIES; i++) {
+                        if (tlb[i].timestamp < target_timestamp) {
+                            target_timestamp = tlb[i].timestamp;
+                            replace_index = i;
+                        }
+                    }
+                } else {
+                    fprintf(output_file, "Error: unknown TLB replacement strategy %s\n", strategy);
+                    exit(1);
                 }
             }
 
@@ -331,7 +357,74 @@ void handle_add() {
     registers[0] = result; // Store result in r1
 
     // Corrected output string to match expected output
-    fprintf(output_file, "Current PID: %d. Added contents of registers r1 (%u) and r2 (%u). Result: %u\n", current_pid, value1, value2, result);
+    fprintf(output_file, "Current PID: %d. Added register r1 (%u) to register r2 (%u). Result: %u\n", current_pid, value1, value2, result);
+}
+
+// Function to handle 'pinspect' instruction
+void handle_pinspect(char **tokens) {
+    uint32_t vpn = (uint32_t)atoi(tokens[1]);
+
+    PageTableEntry pte = page_tables[current_pid][vpn];
+    uint32_t pfn = pte.pfn;
+    int valid = pte.valid;
+
+    fprintf(output_file, "Current PID: %d. Inspected page table entry %u. Physical frame number: %u. Valid: %d\n", current_pid, vpn, pfn, valid);
+}
+
+// Function to handle 'tinspect' instruction
+void handle_tinspect(char **tokens) {
+    int tlb_index = atoi(tokens[1]);
+
+    if (tlb_index < 0 || tlb_index >= MAX_TLB_ENTRIES) {
+        fprintf(output_file, "Current PID: %d. Error: invalid TLB index %d\n", current_pid, tlb_index);
+        exit(1);
+    }
+
+    TLBEntry entry = tlb[tlb_index];
+
+    uint32_t vpn = entry.vpn;
+    uint32_t pfn = entry.pfn;
+    int valid = entry.valid;
+    uint32_t pid = entry.pid;
+    uint32_t timestamp = entry.timestamp;
+
+    fprintf(output_file, "Current PID: %d. Inspected TLB entry %d. VPN: %u. PFN: %u. Valid: %d. PID: %u. Timestamp: %u\n",
+            current_pid, tlb_index, vpn, pfn, valid, pid, timestamp);
+}
+
+// Function to handle 'linspect' instruction
+void handle_linspect(char **tokens) {
+    uint32_t physical_addr = (uint32_t)atoi(tokens[1]);
+
+    // Check if physical address is within bounds
+    uint32_t memory_size = (1 << (offset_bits + pfn_bits));
+    if (physical_addr >= memory_size) {
+        fprintf(output_file, "Current PID: %d. Error: invalid physical address %u\n", current_pid, physical_addr);
+        exit(1);
+    }
+
+    uint32_t value = memory[physical_addr];
+
+    fprintf(output_file, "Current PID: %d. Inspected physical location %u. Content: %u\n", current_pid, physical_addr, value);
+}
+
+// Function to handle 'rinspect' instruction
+void handle_rinspect(char **tokens) {
+    char *reg = tokens[1];
+
+    int reg_index;
+    if (strcmp(reg, "r1") == 0) {
+        reg_index = 0;
+    } else if (strcmp(reg, "r2") == 0) {
+        reg_index = 1;
+    } else {
+        fprintf(output_file, "Current PID: %d. Error: invalid register operand %s\n", current_pid, reg);
+        exit(1);
+    }
+
+    uint32_t value = registers[reg_index];
+
+    fprintf(output_file, "Current PID: %d. Inspected register %s. Content: %u\n", current_pid, reg, value);
 }
 
 // Function to tokenize input
@@ -431,6 +524,14 @@ int main(int argc, char* argv[]) {
             handle_store(tokens);
         } else if (strcmp(tokens[0], "add") == 0) {
             handle_add();
+        } else if (strcmp(tokens[0], "pinspect") == 0) {
+            handle_pinspect(tokens);
+        } else if (strcmp(tokens[0], "tinspect") == 0) {
+            handle_tinspect(tokens);
+        } else if (strcmp(tokens[0], "linspect") == 0) {
+            handle_linspect(tokens);
+        } else if (strcmp(tokens[0], "rinspect") == 0) {
+            handle_rinspect(tokens);
         } else {
             fprintf(output_file, "Error: unknown instruction %s\n", tokens[0]);
             exit(1);
